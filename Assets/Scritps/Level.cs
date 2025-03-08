@@ -59,25 +59,55 @@ namespace Drawing
             Node lastNode = selectedNodes[selectedNodes.Count - 1];
             Node bestNode = GetBestDirectionalNode(lastNode, worldPosition);
 
-            if (bestNode != null && !IsRecentDuplicate(bestNode))
+            if (bestNode != null)
             {
-                float bestNodeDistance = Vector2.Distance(bestNode.Position, worldPosition);
-
-                Debug.Log(bestNode.Position);
-                Debug.Log(worldPosition);
-                
-                if (bestNodeDistance <= 0.1f)
+                if (selectedNodes.Count > 1 && selectedNodes[selectedNodes.Count - 2] == bestNode)
                 {
-                    Connection connection = GetConnectionBetweenNodes(lastNode, bestNode);
-                    if (connection != null && !selectedConnections.Contains(connection))
+                    RemoveLastNode();
+                    return;
+                }
+
+                if (!IsRecentDuplicate(bestNode))
+                {
+                    float bestNodeDistance = Vector2.Distance(bestNode.Position, worldPosition);
+
+                    if (bestNodeDistance <= 0.1f)
                     {
-                        selectedNodes.Add(bestNode);
-                        selectedConnections.Add(connection);
-                        DrawPartialLine(connection, worldPosition);
+                        Connection connection = GetConnectionBetweenNodes(lastNode, bestNode);
+                        if (connection != null && !selectedConnections.Contains(connection))
+                        {
+                            selectedNodes.Add(bestNode);
+                            selectedConnections.Add(connection);
+                            DrawPartialLine(connection, worldPosition);
+                        }
                     }
                 }
             }
         }
+
+        private void RemoveLastNode()
+        {
+            if (selectedNodes.Count < 2) return;
+
+            Node lastNode = selectedNodes[selectedNodes.Count - 1];
+            Node previousNode = selectedNodes[selectedNodes.Count - 2];
+
+            Connection connection = GetConnectionBetweenNodes(previousNode, lastNode);
+
+            if (connection != null)
+            {
+                selectedConnections.Remove(connection);
+
+                if (activeLines.TryGetValue(connection, out LineRenderer line))
+                {
+                    Destroy(line.gameObject);
+                    activeLines.Remove(connection);
+                }
+            }
+
+            selectedNodes.RemoveAt(selectedNodes.Count - 1);
+        }
+
 
         private void OnNodeRelease(Vector3 worldPosition)
         {
@@ -148,8 +178,6 @@ namespace Drawing
 
             foreach (var connection in fromNode.Connections)
             {
-                if (selectedConnections.Contains(connection)) continue;
-
                 Node connectedNode = (connection.StartNode == fromNode) ? connection.EndNode : connection.StartNode;
 
                 Vector3 directionToNode = (connectedNode.Position - fromNode.Position).normalized;
