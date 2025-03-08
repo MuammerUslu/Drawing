@@ -1,8 +1,10 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace Drawing
 {
+    [Serializable]
     public class Node
     {
         public Vector3 Position;
