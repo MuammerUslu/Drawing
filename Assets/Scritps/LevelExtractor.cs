@@ -16,33 +16,32 @@ namespace Drawing
             {
                 if (line.positionCount < 2) continue;
 
-                Node previousNode = null;
+                Vector3 startPos = line.GetPosition(0);
+                Vector3 endPos = line.GetPosition(line.positionCount - 1);
 
-                for (int i = 0; i < line.positionCount; i++)
+                if (!nodeLookup.TryGetValue(startPos, out Node startNode))
                 {
-                    Vector3 position = line.GetPosition(i);
-
-                    if (!nodeLookup.TryGetValue(position, out Node currentNode))
-                    {
-                        currentNode = new Node(position);
-                        Nodes.Add(currentNode);
-                        nodeLookup[position] = currentNode;
-                    }
-
-                    if (previousNode != null)
-                    {
-                        Connection connection = new Connection(previousNode, currentNode, line);
-                        Connections.Add(connection);
-
-                        previousNode.Connections.Add(connection);
-                        currentNode.Connections.Add(connection);
-                    }
-
-                    previousNode = currentNode;
+                    startNode = new Node(startPos);
+                    Nodes.Add(startNode);
+                    nodeLookup[startPos] = startNode;
                 }
+
+                if (!nodeLookup.TryGetValue(endPos, out Node endNode))
+                {
+                    endNode = new Node(endPos);
+                    Nodes.Add(endNode);
+                    nodeLookup[endPos] = endNode;
+                }
+
+                Connection connection = new Connection(startNode, endNode, line);
+                Connections.Add(connection);
+
+                startNode.Connections.Add(connection);
+                endNode.Connections.Add(connection);
             }
 
             Debug.Log($"Level Extracted! Nodes: {Nodes.Count}, Connections: {Connections.Count}");
         }
+
     }
 }
