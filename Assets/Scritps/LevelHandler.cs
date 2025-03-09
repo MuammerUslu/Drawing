@@ -1,52 +1,85 @@
 using System.Collections.Generic;
 using System.Linq;
+using Drawing.Data;
 using UnityEngine;
 
 namespace Drawing
 {
-    public class Level : MonoBehaviour
+    public class LevelHandler
     {
-        [SerializeField] private LineRenderer lineRendererPrefab;
+        private readonly LineRenderer _lineRendererPrefab;
+        private readonly LevelExtractor _levelExtractor;
+        private readonly Transform _parentTransform;
 
-        private LevelExtractor _levelExtractor;
         private readonly List<Node> _selectedNodes = new List<Node>();
         private readonly Dictionary<Connection, bool> _selectedConnections = new Dictionary<Connection, bool>();
         private readonly Dictionary<Connection, LineRenderer> _activeLines = new Dictionary<Connection, LineRenderer>();
-        
-        [SerializeField] private LineRenderer[] lineRenderers;
 
-        private void OnValidate()
-        {
-            lineRenderers = GetComponentsInChildren<LineRenderer>();
-        }
+        private readonly List<LineRenderer> _lineRenderers;
 
-        private void Start()
+        public LevelHandler(LineRenderer lineRendererPrefab,Transform parentTransform)
         {
+            _lineRendererPrefab = lineRendererPrefab;
+
+            _lineRenderers = new List<LineRenderer>();
             _levelExtractor = new LevelExtractor();
-            _levelExtractor.ExtractLevelData(lineRenderers);
+            _parentTransform = parentTransform;
         }
 
-        void Update()
-        {
-            if (Input.GetKeyDown(KeyCode.Space))
-            {
-                Debug.Break();
-            }
-        }
-
-        private void OnEnable()
+        public void Subscribe()
         {
             Constants.OnClickPosition += OnNodeClick;
             Constants.OnDragPosition += OnNodeDrag;
             Constants.OnPointerUpPosition += OnNodeRelease;
         }
 
-        private void OnDisable()
+        public void Unsubscribe()
         {
             Constants.OnClickPosition -= OnNodeClick;
             Constants.OnDragPosition -= OnNodeDrag;
             Constants.OnPointerUpPosition -= OnNodeRelease;
         }
+
+        public void LoadLevel(LevelDataSo levelDataSo)
+        {
+            if (levelDataSo == null || levelDataSo.linePositions == null) return;
+
+            ClearExistingLevel();
+
+            foreach (var lineData in levelDataSo.linePositions)
+            {
+                if (lineData.points == null || lineData.points.Length < 2) continue;
+
+                LineRenderer newLine = Object.Instantiate(_lineRendererPrefab, _parentTransform);
+                newLine.positionCount = lineData.points.Length;
+                newLine.SetPositions(lineData.points);
+                _lineRenderers.Add(newLine);
+            }
+
+            _levelExtractor.ExtractLevelData(_lineRenderers.ToArray());
+        }
+
+        private void ClearExistingLevel()
+        {
+            foreach (var line in _lineRenderers)
+            {
+                if (line != null)
+                    Object.Destroy(line.gameObject);
+            }
+
+            _lineRenderers.Clear();
+
+            foreach (var line in _activeLines.Values)
+            {
+                if (line != null)
+                    Object.Destroy(line.gameObject);
+            }
+
+            _activeLines.Clear();
+            _selectedNodes.Clear();
+            _selectedConnections.Clear();
+        }
+
 
         private void OnNodeClick(Vector3 worldPosition)
         {
@@ -88,7 +121,7 @@ namespace Drawing
             // Set up dictionary values
             if (!_activeLines.TryGetValue(_bestConnection, out LineRenderer newLine))
             {
-                newLine = Instantiate(lineRendererPrefab, transform);
+                newLine = Object.Instantiate(_lineRendererPrefab, _parentTransform);
                 _activeLines[_bestConnection] = newLine;
                 _selectedConnections[_bestConnection] = false;
             }
@@ -116,7 +149,7 @@ namespace Drawing
                 if (completed)
                     return;
 
-                Destroy(_activeLines.Values.Last().gameObject);
+                Object.Destroy(_activeLines.Values.Last().gameObject);
 
                 _selectedConnections.Remove(_selectedConnections.Keys.Last());
                 _activeLines.Remove(_activeLines.Keys.Last());
@@ -127,7 +160,7 @@ namespace Drawing
         {
             foreach (var line in _activeLines.Values)
             {
-                Destroy(line.gameObject);
+                Object.Destroy(line.gameObject);
             }
 
             _bestConnection = null;
@@ -214,7 +247,7 @@ namespace Drawing
 
             return Mathf.Clamp01(projection / totalDistance);
         }
-        
+
         private Node GetClosestNode(Vector3 worldPosition)
         {
             Node closestNode = null;

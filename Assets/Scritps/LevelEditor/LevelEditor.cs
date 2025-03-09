@@ -137,6 +137,9 @@ public class LevelEditor : MonoBehaviour
 
     private void AddPoint(Vector3 point)
     {
+        if (_currentLine.Count > 0 && Vector3.Distance(_currentLine[_currentLine.Count - 1], point) < 0.001f)
+            return; // Prevent adding the same point twice
+
         _currentLine.Add(point);
         _lastAddedPoint = point;
 
@@ -144,9 +147,16 @@ public class LevelEditor : MonoBehaviour
         _currentLineRenderer.SetPositions(_currentLine.ToArray());
     }
 
+
     private void FinishCurrentLine()
     {
         if (_currentLine.Count < 2 || levelData == null) return;
+
+        // Ensure last point is not duplicated
+        if (_currentLine.Count > 1 && Vector3.Distance(_currentLine[_currentLine.Count - 2], _currentLine[_currentLine.Count - 1]) < 0.001f)
+        {
+            _currentLine.RemoveAt(_currentLine.Count - 1);
+        }
 
         List<LineData> allLines = new List<LineData>();
 
@@ -164,6 +174,7 @@ public class LevelEditor : MonoBehaviour
         _isDrawing = false;
         _isStraightLineMode = false;
     }
+
 
     private void RemoveLastLine()
     {
