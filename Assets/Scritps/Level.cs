@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Drawing
@@ -9,14 +10,10 @@ namespace Drawing
         [SerializeField] private LineRenderer lineRendererPrefab;
 
         private LevelExtractor _levelExtractor;
-        public List<Node> selectedNodes = new List<Node>();
-        public List<Connection> selectedConnections = new List<Connection>();
-        private LineRenderer activeLine;
-
-        public List<Node> allNodes = new List<Node>();
-
-        private Dictionary<Connection, LineRenderer> activeLines = new Dictionary<Connection, LineRenderer>();
-
+        private readonly List<Node> _selectedNodes = new List<Node>();
+        private readonly Dictionary<Connection, bool> _selectedConnections = new Dictionary<Connection, bool>();
+        private readonly Dictionary<Connection, LineRenderer> _activeLines = new Dictionary<Connection, LineRenderer>();
+        
         private void OnValidate()
         {
             lineRenderers = GetComponentsInChildren<LineRenderer>();
@@ -26,7 +23,14 @@ namespace Drawing
         {
             _levelExtractor = new LevelExtractor();
             _levelExtractor.ExtractLevelData(lineRenderers);
-            allNodes = _levelExtractor.Nodes;
+        }
+
+        void Update()
+        {
+            if (Input.GetKeyDown(KeyCode.Space))
+            {
+                Debug.Break();
+            }
         }
 
         private void OnEnable()
@@ -48,109 +52,168 @@ namespace Drawing
             Node closestNode = GetClosestNode(worldPosition);
             if (closestNode != null)
             {
-                selectedNodes.Add(closestNode);
+                _selectedNodes.Add(closestNode);
             }
         }
+
+        private Connection _bestConnection;
 
         private void OnNodeDrag(Vector3 worldPosition)
         {
-            if (selectedNodes.Count == 0) return;
+            if (_selectedNodes.Count == 0) return;
 
-            Node lastNode = selectedNodes[selectedNodes.Count - 1];
-            Node bestNode = GetBestDirectionalNode(lastNode, worldPosition);
+            Node lastNode = _selectedNodes[_selectedNodes.Count - 1];
 
-            if (bestNode != null)
+            if (_bestConnection == null)
             {
-                if (selectedNodes.Count > 1 && selectedNodes[selectedNodes.Count - 2] == bestNode)
-                {
-                    RemoveLastNode();
-                    return;
-                }
+                _bestConnection = GetBestDirectionalConnection(lastNode, worldPosition);
+                return;
+            }
 
-                if (!IsRecentDuplicate(bestNode))
-                {
-                    float bestNodeDistance = Vector2.Distance(bestNode.Position, worldPosition);
+            Node endNode = (_bestConnection.EndNode == lastNode) ? _bestConnection.StartNode : _bestConnection.EndNode;
+            Node startNode = (_bestConnection.EndNode == lastNode) ? _bestConnection.EndNode : _bestConnection.StartNode;
 
-                    if (bestNodeDistance <= 0.1f)
-                    {
-                        Connection connection = GetConnectionBetweenNodes(lastNode, bestNode);
-                        if (connection != null && !selectedConnections.Contains(connection))
-                        {
-                            selectedNodes.Add(bestNode);
-                            selectedConnections.Add(connection);
-                            DrawPartialLine(connection, worldPosition);
-                        }
-                    }
+            if (Vector3.Distance(startNode.Position, worldPosition) <= Vector3.Distance(endNode.Position, worldPosition))
+            {
+                Connection connection = GetBestDirectionalConnection(lastNode, worldPosition);
+
+                if (connection != _bestConnection)
+                {
+                    RemoveLastUncompleteConnection();
+                    _bestConnection = connection;
                 }
+            }
+
+            // Set up dictionary values
+            if (!_activeLines.TryGetValue(_bestConnection, out LineRenderer newLine))
+            {
+                newLine = Instantiate(lineRendererPrefab, transform);
+                _activeLines[_bestConnection] = newLine;
+                _selectedConnections[_bestConnection] = false;
+            }
+
+            if (_selectedConnections.Count >= 1 && _selectedConnections[_selectedConnections.Keys.Last()] == false && _bestConnection != _selectedConnections.Keys.Last())
+            {
+                RemoveLastUncompleteConnection();
+            }
+
+            // Draw line end check if completed
+            bool connectionCompleted = DrawPartialLine(_bestConnection, worldPosition, newLine);
+
+            if (connectionCompleted)
+            {
+                _selectedConnections[_bestConnection] = true;
+                _selectedNodes.Add(endNode);
+                _bestConnection = null;
             }
         }
 
-        private void RemoveLastNode()
+        private void RemoveLastUncompleteConnection()
         {
-            if (selectedNodes.Count < 2) return;
-
-            Node lastNode = selectedNodes[selectedNodes.Count - 1];
-            Node previousNode = selectedNodes[selectedNodes.Count - 2];
-
-            Connection connection = GetConnectionBetweenNodes(previousNode, lastNode);
-
-            if (connection != null)
+            if (_selectedConnections.TryGetValue(_bestConnection, out bool completed))
             {
-                selectedConnections.Remove(connection);
+                if (completed)
+                    return;
 
-                if (activeLines.TryGetValue(connection, out LineRenderer line))
-                {
-                    Destroy(line.gameObject);
-                    activeLines.Remove(connection);
-                }
+                Destroy(_activeLines.Values.Last().gameObject);
+
+                _selectedConnections.Remove(_selectedConnections.Keys.Last());
+                _activeLines.Remove(_activeLines.Keys.Last());
             }
-
-            selectedNodes.RemoveAt(selectedNodes.Count - 1);
         }
-
 
         private void OnNodeRelease(Vector3 worldPosition)
         {
-            foreach (var line in activeLines.Values)
+            foreach (var line in _activeLines.Values)
             {
                 Destroy(line.gameObject);
             }
 
-            activeLines.Clear();
-            selectedNodes.Clear();
-            selectedConnections.Clear();
+            _bestConnection = null;
+            _activeLines.Clear();
+            _selectedNodes.Clear();
+            _selectedConnections.Clear();
         }
 
-        private bool IsRecentDuplicate(Node node)
+        private bool DrawPartialLine(Connection connection, Vector3 worldPosition, LineRenderer newLine)
         {
-            if (selectedNodes.Count < 2) return false;
-            return selectedNodes[selectedNodes.Count - 1] == node || selectedNodes[selectedNodes.Count - 2] == node;
-        }
-
-        private void DrawPartialLine(Connection connection, Vector3 worldPosition)
-        {
-            if (!activeLines.TryGetValue(connection, out LineRenderer newLine))
+            if (_selectedConnections.TryGetValue(connection, out bool completed) && completed)
             {
-                newLine = Instantiate(lineRendererPrefab, transform);
-                activeLines[connection] = newLine;
+                return false;
             }
 
-            Vector3 start = connection.StartNode.Position;
-            Vector3 end = connection.EndNode.Position;
-            float totalDistance = Vector3.Distance(start, end);
-            float currentDistance = Vector3.Distance(start, worldPosition);
-            float ratio = Mathf.Clamp01(currentDistance / totalDistance);
+            LineRenderer originalLine = connection.Line;
+            if (originalLine == null || originalLine.positionCount < 2)
+                return false;
 
-            Vector3 midpoint = Vector3.Lerp(start, end, ratio);
+            Node lastNode = _selectedNodes[_selectedNodes.Count - 1];
+            bool isReversed = (connection.EndNode == lastNode);
 
-            newLine.positionCount = 2;
-            newLine.SetPosition(0, start);
-            newLine.SetPosition(1, midpoint);
+            Vector3[] originalPositions = new Vector3[originalLine.positionCount];
+            originalLine.GetPositions(originalPositions);
+
+            if (isReversed)
+                System.Array.Reverse(originalPositions);
+
+            List<Vector3> interpolatedPositions = new List<Vector3> { originalPositions[0] };
+            bool isComplete = false;
+
+            int closestSegmentIndex = -1;
+            float minDistance = float.MaxValue;
+
+            for (int i = 1; i < originalPositions.Length; i++)
+            {
+                Vector3 segmentStart = originalPositions[i - 1];
+                Vector3 segmentEnd = originalPositions[i];
+
+                float distanceToSegment = Vector3.Distance(segmentStart, worldPosition) + Vector3.Distance(segmentEnd, worldPosition);
+
+                if (distanceToSegment < minDistance)
+                {
+                    minDistance = distanceToSegment;
+                    closestSegmentIndex = i - 1;
+                }
+            }
+
+            if (closestSegmentIndex == -1)
+                return false;
+
+            for (int i = 1; i <= closestSegmentIndex; i++)
+            {
+                interpolatedPositions.Add(originalPositions[i]);
+            }
+
+            Vector3 start = originalPositions[closestSegmentIndex];
+            Vector3 end = originalPositions[closestSegmentIndex + 1];
+
+            Vector3 interpolatedPoint = Vector3.Lerp(start, end, GetInterpolationRatio(start, end, worldPosition));
+            interpolatedPositions.Add(interpolatedPoint);
+
+            if (Vector3.Distance(interpolatedPoint, end) < 0.01f && closestSegmentIndex + 1 == originalPositions.Length - 1)
+            {
+                isComplete = true;
+                interpolatedPositions = new List<Vector3>(originalPositions);
+            }
+
+            newLine.positionCount = interpolatedPositions.Count;
+            newLine.SetPositions(interpolatedPositions.ToArray());
             newLine.startColor = Color.red;
             newLine.endColor = Color.red;
+
+            return isComplete;
         }
 
+        private float GetInterpolationRatio(Vector3 start, Vector3 end, Vector3 target)
+        {
+            Vector3 startToEnd = end - start;
+            Vector3 startToTarget = target - start;
 
+            float projection = Vector3.Dot(startToTarget, startToEnd.normalized);
+            float totalDistance = startToEnd.magnitude;
+
+            return Mathf.Clamp01(projection / totalDistance);
+        }
+        
         private Node GetClosestNode(Vector3 worldPosition)
         {
             Node closestNode = null;
@@ -169,62 +232,33 @@ namespace Drawing
             return closestNode;
         }
 
-        private Node GetBestDirectionalNode(Node fromNode, Vector3 worldPosition)
+        private Connection GetBestDirectionalConnection(Node fromNode, Vector3 worldPosition)
         {
-            Node bestNode = null;
+            Connection bestConnection = null;
             float bestAngle = float.MaxValue;
-
             Vector3 movementDirection = (worldPosition - fromNode.Position).normalized;
 
             foreach (var connection in fromNode.Connections)
             {
-                Node connectedNode = (connection.StartNode == fromNode) ? connection.EndNode : connection.StartNode;
+                LineRenderer lineRenderer = connection.Line;
+                if (lineRenderer == null || lineRenderer.positionCount < 2) continue;
 
-                Vector3 directionToNode = (connectedNode.Position - fromNode.Position).normalized;
-                float angle = Vector3.Angle(movementDirection, directionToNode);
+                Vector3 secondPoint = (lineRenderer.positionCount > 2) ? lineRenderer.GetPosition(1) : ((connection.StartNode == fromNode) ? connection.EndNode.Position : connection.StartNode.Position);
+
+                Vector3 directionToSecondPoint = (secondPoint - fromNode.Position).normalized;
+
+                if (directionToSecondPoint == Vector3.zero) continue;
+
+                float angle = Vector3.Angle(movementDirection, directionToSecondPoint);
 
                 if (angle < bestAngle)
                 {
                     bestAngle = angle;
-                    bestNode = connectedNode;
+                    bestConnection = connection;
                 }
             }
 
-            return bestNode;
-        }
-
-        private Node GetClosestConnectedNode(Node fromNode, Vector3 targetPosition)
-        {
-            Node closestNode = null;
-            float closestDistance = float.MaxValue;
-
-            foreach (var connection in fromNode.Connections)
-            {
-                Node connectedNode = (connection.StartNode == fromNode) ? connection.EndNode : connection.StartNode;
-
-                float distance = Vector3.Distance(connectedNode.Position, targetPosition);
-                if (distance < closestDistance)
-                {
-                    closestDistance = distance;
-                    closestNode = connectedNode;
-                }
-            }
-
-            return closestNode;
-        }
-
-        private Connection GetConnectionBetweenNodes(Node nodeA, Node nodeB)
-        {
-            foreach (var connection in _levelExtractor.Connections)
-            {
-                if ((connection.StartNode == nodeA && connection.EndNode == nodeB) ||
-                    (connection.StartNode == nodeB && connection.EndNode == nodeA))
-                {
-                    return connection;
-                }
-            }
-
-            return null;
+            return bestConnection;
         }
     }
 }

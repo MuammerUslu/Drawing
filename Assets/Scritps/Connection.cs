@@ -1,7 +1,9 @@
+using System;
 using UnityEngine;
 
 namespace Drawing
 {
+    [Serializable]
     public class Connection
     {
         public Node StartNode;
