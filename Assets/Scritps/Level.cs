@@ -6,7 +6,6 @@ namespace Drawing
 {
     public class Level : MonoBehaviour
     {
-        [SerializeField] private LineRenderer[] lineRenderers;
         [SerializeField] private LineRenderer lineRendererPrefab;
 
         private LevelExtractor _levelExtractor;
@@ -14,6 +13,8 @@ namespace Drawing
         private readonly Dictionary<Connection, bool> _selectedConnections = new Dictionary<Connection, bool>();
         private readonly Dictionary<Connection, LineRenderer> _activeLines = new Dictionary<Connection, LineRenderer>();
         
+        [SerializeField] private LineRenderer[] lineRenderers;
+
         private void OnValidate()
         {
             lineRenderers = GetComponentsInChildren<LineRenderer>();
