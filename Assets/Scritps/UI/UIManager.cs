@@ -1,4 +1,5 @@
 using System;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -9,6 +10,7 @@ namespace Drawing
         public static UIManager Instance { get; private set; }
 
         [SerializeField] private Button nextLevelButton;
+        [SerializeField] private TextMeshProUGUI levelText;
 
         private void Awake()
         {
@@ -35,13 +37,14 @@ namespace Drawing
         {
             nextLevelButton.interactable = true;
             nextLevelButton.gameObject.SetActive(true);
-        }  
-        
-        public void SetUpInGameUI()
-        {           
-            nextLevelButton.gameObject.SetActive(false);
         }
-        
+
+        public void SetUpInGameUI()
+        {
+            nextLevelButton.gameObject.SetActive(false);
+            levelText.text = $"Level {PlayerPrefs.GetInt("CurrentLevel", 1)}";
+        }
+
         private void SetUpSingleton()
         {
             if (Instance == null)
