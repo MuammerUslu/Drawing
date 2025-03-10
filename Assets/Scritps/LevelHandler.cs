@@ -68,7 +68,8 @@ namespace Drawing
             }
 
             _lineRenderers.Clear();
-
+            _bestConnection = null;
+            
             foreach (var line in _activeLines.Values)
             {
                 if (line != null)

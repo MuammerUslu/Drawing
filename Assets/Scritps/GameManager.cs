@@ -41,6 +41,15 @@ namespace Drawing
             _levelHandler?.Unsubscribe();
         }
 
+        public void LoadNextLevel()
+        {
+            int currentLevel = PlayerPrefs.GetInt("CurrentLevel", 1);
+            currentLevel++;
+            PlayerPrefs.SetInt("CurrentLevel", currentLevel);
+
+            LoadedLevel();
+        }
+
         private void LoadedLevel()
         {
             int currentLevel = PlayerPrefs.GetInt("CurrentLevel", 1);

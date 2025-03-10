@@ -10,6 +10,9 @@ namespace Drawing
 
         public void ExtractLevelData(LineRenderer[] lineRenderers)
         {
+            Nodes.Clear();
+            Connections.Clear();
+            
             Dictionary<Vector3, Node> nodeLookup = new Dictionary<Vector3, Node>();
 
             foreach (var line in lineRenderers)
