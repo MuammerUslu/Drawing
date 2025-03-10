@@ -17,6 +17,8 @@ namespace Drawing
 
         private readonly List<LineRenderer> _lineRenderers;
 
+        public bool LevelCompleted { get; private set; }
+
         public LevelHandler(LineRenderer lineRendererPrefab,Transform parentTransform)
         {
             _lineRendererPrefab = lineRendererPrefab;
@@ -45,6 +47,7 @@ namespace Drawing
             if (levelDataSo == null || levelDataSo.linePositions == null) return;
 
             ClearExistingLevel();
+            LevelCompleted = false;
 
             foreach (var lineData in levelDataSo.linePositions)
             {
@@ -140,6 +143,12 @@ namespace Drawing
                 _selectedConnections[_bestConnection] = true;
                 _selectedNodes.Add(endNode);
                 _bestConnection = null;
+
+                if (_levelExtractor.Connections.All(conn => _selectedConnections.ContainsKey(conn) && _selectedConnections[conn]))
+                {
+                    LevelCompleted = true;
+                    GameManager.Instance.CompleteLevel();
+                }
             }
         }
 
@@ -159,6 +168,9 @@ namespace Drawing
 
         private void OnNodeRelease(Vector3 worldPosition)
         {
+            if(LevelCompleted)
+                return;
+            
             foreach (var line in _activeLines.Values)
             {
                 Object.Destroy(line.gameObject);

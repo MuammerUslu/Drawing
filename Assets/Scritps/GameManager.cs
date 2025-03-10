@@ -50,6 +50,11 @@ namespace Drawing
             LoadedLevel();
         }
 
+        public void CompleteLevel()
+        {
+            UIManager.Instance.OpenLevelCompletePanel();
+        }
+
         private void LoadedLevel()
         {
             int currentLevel = PlayerPrefs.GetInt("CurrentLevel", 1);
@@ -57,9 +62,12 @@ namespace Drawing
 
             _addressableLevelLoader.UnloadAll();
 
-            _addressableLevelLoader.LoadLevel(currentLevel, (level) => { _levelHandler.LoadLevel(level); });
+            _addressableLevelLoader.LoadLevel(currentLevel, (level) =>
+            {
+                _levelHandler.LoadLevel(level);
+                UIManager.Instance.SetUpInGameUI();
+            });
         }
-
 
         private void SetUpSingleton()
         {

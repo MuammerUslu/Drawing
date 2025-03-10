@@ -10,6 +10,11 @@ namespace Drawing
 
         [SerializeField] private Button nextLevelButton;
 
+        private void Awake()
+        {
+            SetUpSingleton();
+        }
+
         private void OnEnable()
         {
             nextLevelButton.onClick.AddListener(OnClickNextButton);
@@ -23,6 +28,30 @@ namespace Drawing
         private void OnClickNextButton()
         {
             GameManager.Instance.LoadNextLevel();
+            nextLevelButton.interactable = false;
+        }
+
+        public void OpenLevelCompletePanel()
+        {
+            nextLevelButton.interactable = true;
+            nextLevelButton.gameObject.SetActive(true);
+        }  
+        
+        public void SetUpInGameUI()
+        {           
+            nextLevelButton.gameObject.SetActive(false);
+        }
+        
+        private void SetUpSingleton()
+        {
+            if (Instance == null)
+            {
+                Instance = this;
+            }
+            else
+            {
+                Destroy(gameObject);
+            }
         }
     }
 }
