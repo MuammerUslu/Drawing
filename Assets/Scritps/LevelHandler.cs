@@ -12,18 +12,17 @@ namespace Drawing
         private readonly Transform _parentTransform;
 
         private readonly List<Node> _selectedNodes = new List<Node>();
-        private readonly Dictionary<Connection, bool> _selectedConnections = new Dictionary<Connection, bool>();
-        private readonly Dictionary<Connection, LineRenderer> _activeLines = new Dictionary<Connection, LineRenderer>();
-
-        private readonly List<LineRenderer> _lineRenderers;
+        private readonly List<Connection> _selectedConnections = new List<Connection>();
 
         public bool LevelCompleted { get; private set; }
 
-        public LevelHandler(LineRenderer lineRendererPrefab,Transform parentTransform)
+        private LineRenderer _targetShapeLineRenderer;
+        private LineRenderer _drawingLineRenderer;
+
+        public LevelHandler(LineRenderer lineRendererPrefab, Transform parentTransform)
         {
             _lineRendererPrefab = lineRendererPrefab;
 
-            _lineRenderers = new List<LineRenderer>();
             _levelExtractor = new LevelExtractor();
             _parentTransform = parentTransform;
         }
@@ -49,37 +48,39 @@ namespace Drawing
             ClearExistingLevel();
             LevelCompleted = false;
 
+            List<Vector3> allPoints = new List<Vector3>();
+
             foreach (var lineData in levelDataSo.linePositions)
             {
-                if (lineData.points == null || lineData.points.Length < 2) continue;
+                if (lineData.points == null || lineData.points.Length < 2)
+                    continue;
 
-                LineRenderer newLine = Object.Instantiate(_lineRendererPrefab, _parentTransform);
-                newLine.positionCount = lineData.points.Length;
-                newLine.SetPositions(lineData.points);
-                _lineRenderers.Add(newLine);
+                foreach (var position in lineData.points)
+                {
+                    if (allPoints.Count == 0 || allPoints[^1] != position)
+                        allPoints.Add(position);
+                }
             }
 
-            _levelExtractor.ExtractLevelData(_lineRenderers.ToArray());
+            _targetShapeLineRenderer = Object.Instantiate(_lineRendererPrefab, _parentTransform);
+            _drawingLineRenderer = Object.Instantiate(_lineRendererPrefab, _parentTransform);
+            _drawingLineRenderer.gameObject.name = "DrawingLine";
+
+            Vector3[] linePositions = allPoints.ToArray();
+            _targetShapeLineRenderer.positionCount = allPoints.Count;
+            _targetShapeLineRenderer.SetPositions(linePositions);
+
+            _levelExtractor.ExtractLevelData(linePositions);
         }
 
         private void ClearExistingLevel()
         {
-            foreach (var line in _lineRenderers)
-            {
-                if (line != null)
-                    Object.Destroy(line.gameObject);
-            }
+            if (_targetShapeLineRenderer != null)
+                Object.Destroy(_targetShapeLineRenderer.gameObject);
 
-            _lineRenderers.Clear();
-            _bestConnection = null;
-            
-            foreach (var line in _activeLines.Values)
-            {
-                if (line != null)
-                    Object.Destroy(line.gameObject);
-            }
+            if (_drawingLineRenderer != null)
+                Object.Destroy(_drawingLineRenderer.gameObject);
 
-            _activeLines.Clear();
             _selectedNodes.Clear();
             _selectedConnections.Clear();
         }
@@ -94,172 +95,222 @@ namespace Drawing
             }
         }
 
-        private Connection _bestConnection;
-
         private void OnNodeDrag(Vector3 worldPosition)
         {
-            if (_selectedNodes.Count == 0) return;
+            if (_selectedNodes.Count == 0)
+                return;
 
             Node lastNode = _selectedNodes[_selectedNodes.Count - 1];
+            Node closestNode = GetClosestNode(worldPosition);
+            if (closestNode == null || closestNode == lastNode)
+                return;
 
-            if (_bestConnection == null)
+            Dictionary<Node, Node> parents = BFS(lastNode, closestNode);
+            if (!parents.ContainsKey(closestNode))
+                return;
+
+            List<Node> bfsNodePath = ReconstructPath(parents, lastNode, closestNode);
+            if (bfsNodePath.Count < 2)
+                return;
+
+            List<Connection> bfsConnections = BuildConnectionList(bfsNodePath);
+            if (bfsConnections.Count == 0)
+                return;
+
+            MergeConnections(_selectedConnections, bfsConnections);
+
+            List<Node> finalNodePath = BuildNodeListFromConnections(_selectedNodes[0], _selectedConnections);
+
+            _selectedNodes.Clear();
+            _selectedNodes.AddRange(finalNodePath);
+
+            DrawPath(finalNodePath);
+
+            CheckIfLevelCompleted();
+        }
+
+        private void CheckIfLevelCompleted()
+        {
+            if (LevelCompleted)
+                return;
+
+            int totalConnectionsNeeded = _targetShapeLineRenderer.positionCount - 1;
+
+            if (_selectedConnections.Count >= totalConnectionsNeeded)
             {
-                _bestConnection = GetBestDirectionalConnection(lastNode, worldPosition);
+                LevelCompleted = true;
+                GameManager.Instance.CompleteLevel();
+            }
+        }
+
+
+        private Dictionary<Node, Node> BFS(Node start, Node target)
+        {
+            Dictionary<Node, Node> parents = new Dictionary<Node, Node>();
+            Queue<Node> queue = new Queue<Node>();
+            HashSet<Node> visited = new HashSet<Node>();
+
+            queue.Enqueue(start);
+            visited.Add(start);
+            parents[start] = null;
+
+            while (queue.Count > 0)
+            {
+                Node current = queue.Dequeue();
+                if (current == target)
+                    break;
+
+                foreach (Connection connection in current.Connections)
+                {
+                    Node neighbor = (connection.StartNode == current)
+                        ? connection.EndNode
+                        : connection.StartNode;
+
+                    if (!visited.Contains(neighbor))
+                    {
+                        visited.Add(neighbor);
+                        parents[neighbor] = current;
+                        queue.Enqueue(neighbor);
+                    }
+                }
+            }
+
+            return parents;
+        }
+
+        private List<Node> ReconstructPath(Dictionary<Node, Node> parents, Node start, Node end)
+        {
+            List<Node> path = new List<Node>();
+            Node current = end;
+
+            while (current != null)
+            {
+                path.Add(current);
+
+                if (!parents.ContainsKey(current))
+                    break;
+                current = parents[current];
+            }
+
+            path.Reverse();
+            return path;
+        }
+
+        private List<Connection> BuildConnectionList(List<Node> nodePath)
+        {
+            List<Connection> connections = new List<Connection>();
+
+            for (int i = 0; i < nodePath.Count - 1; i++)
+            {
+                Node n1 = nodePath[i];
+                Node n2 = nodePath[i + 1];
+
+                Connection conn = n1.Connections
+                    .FirstOrDefault(c =>
+                        (c.StartNode == n1 && c.EndNode == n2) ||
+                        (c.StartNode == n2 && c.EndNode == n1));
+
+                if (conn != null)
+                {
+                    connections.Add(conn);
+                }
+            }
+
+            return connections;
+        }
+
+        private void MergeConnections(List<Connection> selectedConnections, List<Connection> bfsConnections)
+        {
+            foreach (var newConn in bfsConnections)
+            {
+                int index = selectedConnections.IndexOf(newConn);
+                if (index == -1)
+                {
+                    selectedConnections.Add(newConn);
+                }
+                else
+                {
+                    if (index == selectedConnections.Count - 1)
+                    {
+                        selectedConnections.RemoveAt(selectedConnections.Count - 1);
+                    }
+
+                    else
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+
+        private List<Node> BuildNodeListFromConnections(Node firstNode, List<Connection> selectedConnections)
+        {
+            if (selectedConnections.Count == 0)
+                return new List<Node>();
+
+            List<Node> nodeList = new List<Node>();
+
+            Connection firstConn = selectedConnections[0];
+            if (firstNode == firstConn.StartNode)
+            {
+                nodeList.Add(firstConn.StartNode);
+                nodeList.Add(firstConn.EndNode);
+            }
+            else
+            {
+                nodeList.Add(firstConn.EndNode);
+                nodeList.Add(firstConn.StartNode);
+            }
+
+            for (int i = 1; i < selectedConnections.Count; i++)
+            {
+                Node lastNodeInList = nodeList[nodeList.Count - 1];
+                Connection conn = selectedConnections[i];
+
+                if (conn.StartNode == lastNodeInList)
+                {
+                    nodeList.Add(conn.EndNode);
+                }
+                else if (conn.EndNode == lastNodeInList)
+                {
+                    nodeList.Add(conn.StartNode);
+                }
+            }
+
+            return nodeList;
+        }
+
+
+        private void DrawPath(List<Node> nodeList)
+        {
+            if (nodeList == null || nodeList.Count < 2)
+            {
+                _drawingLineRenderer.positionCount = 0;
                 return;
             }
 
-            Node endNode = (_bestConnection.EndNode == lastNode) ? _bestConnection.StartNode : _bestConnection.EndNode;
-            Node startNode = (_bestConnection.EndNode == lastNode) ? _bestConnection.EndNode : _bestConnection.StartNode;
-
-            if (Vector3.Distance(startNode.Position, worldPosition) <= Vector3.Distance(endNode.Position, worldPosition))
+            _drawingLineRenderer.positionCount = nodeList.Count;
+            for (int i = 0; i < nodeList.Count; i++)
             {
-                Connection connection = GetBestDirectionalConnection(lastNode, worldPosition);
-
-                if (connection != _bestConnection)
-                {
-                    RemoveLastUncompleteConnection();
-                    _bestConnection = connection;
-                }
+                _drawingLineRenderer.SetPosition(i, nodeList[i].Position);
             }
 
-            // Set up dictionary values
-            if (!_activeLines.TryGetValue(_bestConnection, out LineRenderer newLine))
-            {
-                newLine = Object.Instantiate(_lineRendererPrefab, _parentTransform);
-                _activeLines[_bestConnection] = newLine;
-                _selectedConnections[_bestConnection] = false;
-            }
-
-            if (_selectedConnections.Count >= 1 && _selectedConnections[_selectedConnections.Keys.Last()] == false && _bestConnection != _selectedConnections.Keys.Last())
-            {
-                RemoveLastUncompleteConnection();
-            }
-
-            // Draw line end check if completed
-            bool connectionCompleted = DrawPartialLine(_bestConnection, worldPosition, newLine);
-
-            if (connectionCompleted)
-            {
-                _selectedConnections[_bestConnection] = true;
-                _selectedNodes.Add(endNode);
-                _bestConnection = null;
-
-                if (_levelExtractor.Connections.All(conn => _selectedConnections.ContainsKey(conn) && _selectedConnections[conn]))
-                {
-                    LevelCompleted = true;
-                    GameManager.Instance.CompleteLevel();
-                }
-            }
+            _drawingLineRenderer.startColor = Color.black;
+            _drawingLineRenderer.endColor = Color.black;
+            _drawingLineRenderer.sortingOrder = 100;
         }
 
-        private void RemoveLastUncompleteConnection()
-        {
-            if (_selectedConnections.TryGetValue(_bestConnection, out bool completed))
-            {
-                if (completed)
-                    return;
-
-                Object.Destroy(_activeLines.Values.Last().gameObject);
-
-                _selectedConnections.Remove(_selectedConnections.Keys.Last());
-                _activeLines.Remove(_activeLines.Keys.Last());
-            }
-        }
 
         private void OnNodeRelease(Vector3 worldPosition)
         {
-            if(LevelCompleted)
+            if (LevelCompleted)
                 return;
-            
-            foreach (var line in _activeLines.Values)
-            {
-                Object.Destroy(line.gameObject);
-            }
 
-            _bestConnection = null;
-            _activeLines.Clear();
+            _drawingLineRenderer.positionCount = 0;
             _selectedNodes.Clear();
             _selectedConnections.Clear();
         }
 
-        private bool DrawPartialLine(Connection connection, Vector3 worldPosition, LineRenderer newLine)
-        {
-            if (_selectedConnections.TryGetValue(connection, out bool completed) && completed)
-            {
-                return false;
-            }
-
-            LineRenderer originalLine = connection.Line;
-            if (originalLine == null || originalLine.positionCount < 2)
-                return false;
-
-            Node lastNode = _selectedNodes[_selectedNodes.Count - 1];
-            bool isReversed = (connection.EndNode == lastNode);
-
-            Vector3[] originalPositions = new Vector3[originalLine.positionCount];
-            originalLine.GetPositions(originalPositions);
-
-            if (isReversed)
-                System.Array.Reverse(originalPositions);
-
-            List<Vector3> interpolatedPositions = new List<Vector3> { originalPositions[0] };
-            bool isComplete = false;
-
-            int closestSegmentIndex = -1;
-            float minDistance = float.MaxValue;
-
-            for (int i = 1; i < originalPositions.Length; i++)
-            {
-                Vector3 segmentStart = originalPositions[i - 1];
-                Vector3 segmentEnd = originalPositions[i];
-
-                float distanceToSegment = Vector3.Distance(segmentStart, worldPosition) + Vector3.Distance(segmentEnd, worldPosition);
-
-                if (distanceToSegment < minDistance)
-                {
-                    minDistance = distanceToSegment;
-                    closestSegmentIndex = i - 1;
-                }
-            }
-
-            if (closestSegmentIndex == -1)
-                return false;
-
-            for (int i = 1; i <= closestSegmentIndex; i++)
-            {
-                interpolatedPositions.Add(originalPositions[i]);
-            }
-
-            Vector3 start = originalPositions[closestSegmentIndex];
-            Vector3 end = originalPositions[closestSegmentIndex + 1];
-
-            Vector3 interpolatedPoint = Vector3.Lerp(start, end, GetInterpolationRatio(start, end, worldPosition));
-            interpolatedPositions.Add(interpolatedPoint);
-
-            if (Vector3.Distance(interpolatedPoint, end) < 0.01f && closestSegmentIndex + 1 == originalPositions.Length - 1)
-            {
-                isComplete = true;
-                interpolatedPositions = new List<Vector3>(originalPositions);
-            }
-
-            newLine.positionCount = interpolatedPositions.Count;
-            newLine.SetPositions(interpolatedPositions.ToArray());
-            newLine.startColor = Color.red;
-            newLine.endColor = Color.red;
-
-            return isComplete;
-        }
-
-        private float GetInterpolationRatio(Vector3 start, Vector3 end, Vector3 target)
-        {
-            Vector3 startToEnd = end - start;
-            Vector3 startToTarget = target - start;
-
-            float projection = Vector3.Dot(startToTarget, startToEnd.normalized);
-            float totalDistance = startToEnd.magnitude;
-
-            return Mathf.Clamp01(projection / totalDistance);
-        }
 
         private Node GetClosestNode(Vector3 worldPosition)
         {
@@ -277,35 +328,6 @@ namespace Drawing
             }
 
             return closestNode;
-        }
-
-        private Connection GetBestDirectionalConnection(Node fromNode, Vector3 worldPosition)
-        {
-            Connection bestConnection = null;
-            float bestAngle = float.MaxValue;
-            Vector3 movementDirection = (worldPosition - fromNode.Position).normalized;
-
-            foreach (var connection in fromNode.Connections)
-            {
-                LineRenderer lineRenderer = connection.Line;
-                if (lineRenderer == null || lineRenderer.positionCount < 2) continue;
-
-                Vector3 secondPoint = (lineRenderer.positionCount > 2) ? lineRenderer.GetPosition(1) : ((connection.StartNode == fromNode) ? connection.EndNode.Position : connection.StartNode.Position);
-
-                Vector3 directionToSecondPoint = (secondPoint - fromNode.Position).normalized;
-
-                if (directionToSecondPoint == Vector3.zero) continue;
-
-                float angle = Vector3.Angle(movementDirection, directionToSecondPoint);
-
-                if (angle < bestAngle)
-                {
-                    bestAngle = angle;
-                    bestConnection = connection;
-                }
-            }
-
-            return bestConnection;
         }
     }
 }

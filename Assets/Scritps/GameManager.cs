@@ -15,7 +15,7 @@ namespace Drawing
         private AddressableLevelLoader _addressableLevelLoader;
         private LevelHandler _levelHandler;
 
-        private const int TotalLevelCount = 3;
+        private const int TotalLevelCount = 5;
 
         private LevelDataSo _currentLevelData;
 
@@ -43,7 +43,7 @@ namespace Drawing
 
         public void LoadNextLevel()
         {
-            int currentLevel = PlayerPrefs.GetInt("CurrentLevel", 1);
+            int currentLevel = PlayerPrefs.GetInt("CurrentLevel");
             currentLevel++;
             PlayerPrefs.SetInt("CurrentLevel", currentLevel);
 
@@ -57,7 +57,7 @@ namespace Drawing
 
         private void LoadedLevel()
         {
-            int currentLevel = PlayerPrefs.GetInt("CurrentLevel", 1);
+            int currentLevel = PlayerPrefs.GetInt("CurrentLevel");
             currentLevel = 1 + currentLevel % TotalLevelCount;
 
             _addressableLevelLoader.UnloadAll();

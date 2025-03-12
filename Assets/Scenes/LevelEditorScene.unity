@@ -344,9 +344,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eb07a3c005294746a3a49bb9968ce211, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  levelData: {fileID: 11400000, guid: 14619f763955d40ddbfa3d16648b23c9, type: 2}
+  levelData: {fileID: 11400000, guid: 8a61c89362d8545e787bed0621d22333, type: 2}
   linePrefab: {fileID: 5115222183707756864, guid: d397441d3ade34288b62aec30ba7aa9d, type: 3}
-  minDistanceBetweenPoints: 0.2
+  minDistanceBetweenPoints: 0.1
   snapDistance: 0.15
 --- !u!1 &1699146363
 GameObject:

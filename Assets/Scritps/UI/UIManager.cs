@@ -42,7 +42,7 @@ namespace Drawing
         public void SetUpInGameUI()
         {
             nextLevelButton.gameObject.SetActive(false);
-            levelText.text = $"Level {PlayerPrefs.GetInt("CurrentLevel", 1)}";
+            levelText.text = $"Level {PlayerPrefs.GetInt("CurrentLevel") + 1}";
         }
 
         private void SetUpSingleton()

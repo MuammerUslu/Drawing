@@ -8,43 +8,38 @@ namespace Drawing
         public List<Node> Nodes { get; } = new List<Node>();
         public List<Connection> Connections { get; } = new List<Connection>();
 
-        public void ExtractLevelData(LineRenderer[] lineRenderers)
+        public void ExtractLevelData(Vector3[] positions)
         {
             Nodes.Clear();
             Connections.Clear();
             
             Dictionary<Vector3, Node> nodeLookup = new Dictionary<Vector3, Node>();
+            Node previousNode = null;
 
-            foreach (var line in lineRenderers)
+            for (int i = 0; i < positions.Length; i++)
             {
-                if (line.positionCount < 2) continue;
-
-                Vector3 startPos = line.GetPosition(0);
-                Vector3 endPos = line.GetPosition(line.positionCount - 1);
-
-                if (!nodeLookup.TryGetValue(startPos, out Node startNode))
+                Vector3 position = positions[i];
+                
+                if (!nodeLookup.TryGetValue(position, out Node currentNode))
                 {
-                    startNode = new Node(startPos);
-                    Nodes.Add(startNode);
-                    nodeLookup[startPos] = startNode;
+                    currentNode = new Node(position);
+                    Nodes.Add(currentNode);
+                    nodeLookup[position] = currentNode;
                 }
 
-                if (!nodeLookup.TryGetValue(endPos, out Node endNode))
+                if (previousNode != null)
                 {
-                    endNode = new Node(endPos);
-                    Nodes.Add(endNode);
-                    nodeLookup[endPos] = endNode;
+                    Connection connection = new Connection(previousNode, currentNode);
+                    Connections.Add(connection);
+                    
+                    previousNode.Connections.Add(connection);
+                    currentNode.Connections.Add(connection);
                 }
 
-                Connection connection = new Connection(startNode, endNode, line);
-                Connections.Add(connection);
-
-                startNode.Connections.Add(connection);
-                endNode.Connections.Add(connection);
+                previousNode = currentNode;
             }
 
             Debug.Log($"Level Extracted! Nodes: {Nodes.Count}, Connections: {Connections.Count}");
         }
-
     }
 }
