@@ -7,7 +7,6 @@ using Object = UnityEngine.Object;
 
 namespace Drawing
 {
-    [Serializable]
     public class LevelHandler
     {
         private readonly LineRenderer _lineRendererPrefab;
