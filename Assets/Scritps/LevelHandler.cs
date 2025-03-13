@@ -1,10 +1,13 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Drawing.Data;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace Drawing
 {
+    [Serializable]
     public class LevelHandler
     {
         private readonly LineRenderer _lineRendererPrefab;
@@ -18,6 +21,9 @@ namespace Drawing
 
         private LineRenderer _targetShapeLineRenderer;
         private LineRenderer _drawingLineRenderer;
+
+        private const int MAX_CONNECTION_DEPTH = 10;
+        private const float FIRST_NODE_SELECTION_CONNECTION_COUNT_FACTOR = 0.0001f;
 
         public LevelHandler(LineRenderer lineRendererPrefab, Transform parentTransform)
         {
@@ -65,12 +71,30 @@ namespace Drawing
             _targetShapeLineRenderer = Object.Instantiate(_lineRendererPrefab, _parentTransform);
             _drawingLineRenderer = Object.Instantiate(_lineRendererPrefab, _parentTransform);
             _drawingLineRenderer.gameObject.name = "DrawingLine";
+            _drawingLineRenderer.startWidth *= 3f;
 
             Vector3[] linePositions = allPoints.ToArray();
             _targetShapeLineRenderer.positionCount = allPoints.Count;
             _targetShapeLineRenderer.SetPositions(linePositions);
 
             _levelExtractor.ExtractLevelData(linePositions);
+        }
+
+
+        private bool IsNodeFullyUsed(Node node)
+        {
+            if (node.Connections.Count == 0)
+                return true;
+
+            foreach (Connection c in node.Connections)
+            {
+                if (!_selectedConnections.Contains(c))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private void ClearExistingLevel()
@@ -88,7 +112,10 @@ namespace Drawing
 
         private void OnNodeClick(Vector3 worldPosition)
         {
-            Node closestNode = GetClosestNode(worldPosition);
+            if (LevelCompleted)
+                return;
+
+            Node closestNode = GetClosestNodeWithConnectionAdvantage(worldPosition);
             if (closestNode != null)
             {
                 _selectedNodes.Add(closestNode);
@@ -97,16 +124,22 @@ namespace Drawing
 
         private void OnNodeDrag(Vector3 worldPosition)
         {
+            if (LevelCompleted)
+                return;
+
             if (_selectedNodes.Count == 0)
                 return;
 
-            Node lastNode = _selectedNodes[_selectedNodes.Count - 1];
-            Node closestNode = GetClosestNode(worldPosition);
-            if (closestNode == null || closestNode == lastNode)
+            Node lastNode = _selectedNodes[^1];
+
+            Dictionary<Node, Node> parents;
+            HashSet<Node> reachableNodes = LimitedDepth_BFS(lastNode, MAX_CONNECTION_DEPTH, out parents);
+
+            if (reachableNodes == null || reachableNodes.Count == 0)
                 return;
 
-            Dictionary<Node, Node> parents = BFS(lastNode, closestNode);
-            if (!parents.ContainsKey(closestNode))
+            Node closestNode = GetClosestNodeFromSet(reachableNodes, worldPosition);
+            if (closestNode == null || closestNode == lastNode)
                 return;
 
             List<Node> bfsNodePath = ReconstructPath(parents, lastNode, closestNode);
@@ -120,13 +153,61 @@ namespace Drawing
             MergeConnections(_selectedConnections, bfsConnections);
 
             List<Node> finalNodePath = BuildNodeListFromConnections(_selectedNodes[0], _selectedConnections);
-
             _selectedNodes.Clear();
             _selectedNodes.AddRange(finalNodePath);
 
             DrawPath(finalNodePath);
 
             CheckIfLevelCompleted();
+
+            if (!LevelCompleted && finalNodePath.Count > 0)
+            {
+                Node lastReachedNode = finalNodePath[^1];
+                if (IsNodeFullyUsed(lastReachedNode))
+                {
+                    Constants.FailedTry?.Invoke();
+                    OnNodeRelease(Vector3.zero);
+                }
+            }
+        }
+
+        private HashSet<Node> LimitedDepth_BFS(Node start, int maxDepth, out Dictionary<Node, Node> parents)
+        {
+            parents = new Dictionary<Node, Node>();
+            Dictionary<Node, int> depthMap = new Dictionary<Node, int>();
+            Queue<Node> queue = new Queue<Node>();
+            HashSet<Node> visited = new HashSet<Node>();
+
+            queue.Enqueue(start);
+            visited.Add(start);
+            parents[start] = null;
+            depthMap[start] = 0;
+
+            while (queue.Count > 0)
+            {
+                Node current = queue.Dequeue();
+                int currentDepth = depthMap[current];
+
+                if (currentDepth >= maxDepth)
+                    continue;
+
+                foreach (Connection connection in current.Connections)
+                {
+                    Node neighbor = (connection.StartNode == current)
+                        ? connection.EndNode
+                        : connection.StartNode;
+
+                    if (!visited.Contains(neighbor))
+                    {
+                        visited.Add(neighbor);
+                        parents[neighbor] = current;
+                        depthMap[neighbor] = currentDepth + 1;
+                        queue.Enqueue(neighbor);
+                    }
+                }
+            }
+
+            return visited;
         }
 
         private void CheckIfLevelCompleted()
@@ -143,41 +224,6 @@ namespace Drawing
             }
         }
 
-
-        private Dictionary<Node, Node> BFS(Node start, Node target)
-        {
-            Dictionary<Node, Node> parents = new Dictionary<Node, Node>();
-            Queue<Node> queue = new Queue<Node>();
-            HashSet<Node> visited = new HashSet<Node>();
-
-            queue.Enqueue(start);
-            visited.Add(start);
-            parents[start] = null;
-
-            while (queue.Count > 0)
-            {
-                Node current = queue.Dequeue();
-                if (current == target)
-                    break;
-
-                foreach (Connection connection in current.Connections)
-                {
-                    Node neighbor = (connection.StartNode == current)
-                        ? connection.EndNode
-                        : connection.StartNode;
-
-                    if (!visited.Contains(neighbor))
-                    {
-                        visited.Add(neighbor);
-                        parents[neighbor] = current;
-                        queue.Enqueue(neighbor);
-                    }
-                }
-            }
-
-            return parents;
-        }
-
         private List<Node> ReconstructPath(Dictionary<Node, Node> parents, Node start, Node end)
         {
             List<Node> path = new List<Node>();
@@ -187,9 +233,10 @@ namespace Drawing
             {
                 path.Add(current);
 
-                if (!parents.ContainsKey(current))
+                if (!parents.TryGetValue(current, out var parent))
                     break;
-                current = parents[current];
+
+                current = parent;
             }
 
             path.Reverse();
@@ -234,7 +281,6 @@ namespace Drawing
                     {
                         selectedConnections.RemoveAt(selectedConnections.Count - 1);
                     }
-
                     else
                     {
                         break;
@@ -264,7 +310,7 @@ namespace Drawing
 
             for (int i = 1; i < selectedConnections.Count; i++)
             {
-                Node lastNodeInList = nodeList[nodeList.Count - 1];
+                Node lastNodeInList = nodeList[^1];
                 Connection conn = selectedConnections[i];
 
                 if (conn.StartNode == lastNodeInList)
@@ -279,7 +325,6 @@ namespace Drawing
 
             return nodeList;
         }
-
 
         private void DrawPath(List<Node> nodeList)
         {
@@ -300,7 +345,6 @@ namespace Drawing
             _drawingLineRenderer.sortingOrder = 100;
         }
 
-
         private void OnNodeRelease(Vector3 worldPosition)
         {
             if (LevelCompleted)
@@ -311,18 +355,37 @@ namespace Drawing
             _selectedConnections.Clear();
         }
 
-
-        private Node GetClosestNode(Vector3 worldPosition)
+        private Node GetClosestNodeWithConnectionAdvantage(Vector3 worldPosition)
         {
-            Node closestNode = null;
-            float closestDistance = float.MaxValue;
+            Node bestNode = null;
+            float bestScore = float.MaxValue;
 
             foreach (Node node in _levelExtractor.Nodes)
             {
-                float distance = Vector3.Distance(node.Position, worldPosition);
-                if (distance < closestDistance)
+                float dist = Vector3.Distance(node.Position, worldPosition);
+                float score = dist - FIRST_NODE_SELECTION_CONNECTION_COUNT_FACTOR * node.Connections.Count;
+
+                if (score < bestScore)
                 {
-                    closestDistance = distance;
+                    bestScore = score;
+                    bestNode = node;
+                }
+            }
+
+            return bestNode;
+        }
+
+        private Node GetClosestNodeFromSet(HashSet<Node> nodeSet, Vector3 worldPosition)
+        {
+            Node closestNode = null;
+            float closestDist = float.MaxValue;
+
+            foreach (Node node in nodeSet)
+            {
+                float dist = Vector3.Distance(node.Position, worldPosition);
+                if (dist < closestDist)
+                {
+                    closestDist = dist;
                     closestNode = node;
                 }
             }

@@ -8,5 +8,6 @@ namespace Drawing
         public static Action<Vector3> OnClickPosition;
         public static Action<Vector3> OnDragPosition;
         public static Action<Vector3> OnPointerUpPosition;
+        public static Action FailedTry;
     }
 }
