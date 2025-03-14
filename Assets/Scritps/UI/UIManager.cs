@@ -29,7 +29,7 @@ namespace Drawing
 
         private void OnClickNextButton()
         {
-            GameManager.Instance.LoadNextLevel();
+            GameManager.Instance.LoadedLevel();
             nextLevelButton.interactable = false;
         }
 

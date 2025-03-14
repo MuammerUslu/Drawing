@@ -13,7 +13,7 @@ namespace Drawing
         public static GameManager Instance { get; private set; }
 
         private AddressableLevelLoader _addressableLevelLoader;
-        private LevelHandler _levelHandler;
+        private GameLogic _gameLogic;
 
         private const int TotalLevelCount = 5;
 
@@ -23,7 +23,7 @@ namespace Drawing
         {
             SetUpSingleton();
             _addressableLevelLoader = new AddressableLevelLoader();
-            _levelHandler = new LevelHandler(lineRendererPrefab, transform);
+            _gameLogic = new GameLogic(lineRendererPrefab, transform);
         }
 
         private void Start()
@@ -33,29 +33,24 @@ namespace Drawing
 
         private void OnEnable()
         {
-            _levelHandler?.Subscribe();
+            _gameLogic?.Subscribe();
         }
 
         private void OnDisable()
         {
-            _levelHandler?.Unsubscribe();
-        }
-
-        public void LoadNextLevel()
-        {
-            int currentLevel = PlayerPrefs.GetInt("CurrentLevel");
-            currentLevel++;
-            PlayerPrefs.SetInt("CurrentLevel", currentLevel);
-
-            LoadedLevel();
+            _gameLogic?.Unsubscribe();
         }
 
         public void CompleteLevel()
         {
+            int currentLevel = PlayerPrefs.GetInt("CurrentLevel");
+            currentLevel++;
+            PlayerPrefs.SetInt("CurrentLevel", currentLevel);
+            
             UIManager.Instance.OpenLevelCompletePanel();
         }
 
-        private void LoadedLevel()
+        public void LoadedLevel()
         {
             int currentLevel = PlayerPrefs.GetInt("CurrentLevel");
             currentLevel = 1 + currentLevel % TotalLevelCount;
@@ -64,7 +59,7 @@ namespace Drawing
 
             _addressableLevelLoader.LoadLevel(currentLevel, (level) =>
             {
-                _levelHandler.LoadLevel(level);
+                _gameLogic.LoadLevel(level);
                 UIManager.Instance.SetUpInGameUI();
             });
         }
