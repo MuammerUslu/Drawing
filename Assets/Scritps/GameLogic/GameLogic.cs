@@ -1,6 +1,9 @@
+using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Drawing.Data;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace Drawing
 {
@@ -24,6 +27,8 @@ namespace Drawing
 
         private const int MAX_CONNECTION_DEPTH = 10;
         private const float FIRST_NODE_SELECTION_CONNECTION_COUNT_FACTOR = 0.0001f;
+
+        private bool _tryFailed;
 
         public GameLogic(LineRenderer lineRendererPrefab, Transform parentTransform)
         {
@@ -75,7 +80,7 @@ namespace Drawing
             _targetShapeLineRenderer = Object.Instantiate(_lineRendererPrefab, _parentTransform);
             _drawingLineRenderer = Object.Instantiate(_lineRendererPrefab, _parentTransform);
             _drawingLineRenderer.gameObject.name = "DrawingLine";
-            _drawingLineRenderer.startWidth *= 3f;
+            _drawingLineRenderer.startWidth *= 1.5f;
 
             // Set positions for target shape
             Vector3[] linePositions = allPoints.ToArray();
@@ -100,7 +105,7 @@ namespace Drawing
 
         private void OnNodeClick(Vector3 worldPosition)
         {
-            if (LevelCompleted)
+            if (!CanMakeMove())
                 return;
 
             Node closestNode = _nodeSelector.GetClosestNodeWithAdvantage(
@@ -117,7 +122,7 @@ namespace Drawing
 
         private void OnNodeDrag(Vector3 worldPosition)
         {
-            if (LevelCompleted)
+            if (!CanMakeMove())
                 return;
 
             if (_selectedNodes.Count == 0)
@@ -172,14 +177,34 @@ namespace Drawing
                 if (_connectionHelper.IsNodeFullyUsed(lastReachedNode, _selectedConnections))
                 {
                     Constants.FailedTry?.Invoke();
-                    OnNodeRelease(Vector3.zero);
+                    DelayedNodeRelease(0.25f);
                 }
             }
         }
 
+        private async void DelayedNodeRelease(float delaySeconds)
+        {
+            _tryFailed = true;
+            _drawingLineRenderer.startColor = Color.red;
+            _drawingLineRenderer.endColor = Color.red;
+            await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+            _drawingLineRenderer.startColor = Color.black;
+            _drawingLineRenderer.endColor = Color.black;
+            _tryFailed = false;
+            OnNodeRelease(Vector3.zero);
+        }
+
+        private bool CanMakeMove()
+        {
+            if (_tryFailed || LevelCompleted)
+                return false;
+
+            return true;
+        }
+
         private void OnNodeRelease(Vector3 worldPosition)
         {
-            if (LevelCompleted)
+            if (!CanMakeMove())
                 return;
 
             _drawingLineRenderer.positionCount = 0;
