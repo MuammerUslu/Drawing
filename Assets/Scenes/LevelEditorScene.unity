@@ -347,7 +347,7 @@ MonoBehaviour:
   levelData: {fileID: 11400000, guid: 14619f763955d40ddbfa3d16648b23c9, type: 2}
   linePrefab: {fileID: 5115222183707756864, guid: d397441d3ade34288b62aec30ba7aa9d, type: 3}
   minDistanceBetweenPoints: 0.2
-  snapDistance: 0.15
+  snapDistance: 0.2
   rdpTolerance: 0.1
   catmullSubdivisions: 8
 --- !u!1 &1699146363
