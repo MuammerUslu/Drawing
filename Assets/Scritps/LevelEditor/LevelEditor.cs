@@ -1,3 +1,5 @@
+#region UNITY_EDITOR
+
 using System.Collections.Generic;
 using Drawing.Data;
 using UnityEngine;
@@ -324,3 +326,6 @@ public class LevelEditor : MonoBehaviour
         return foundSnap;
     }
 }
+
+
+#endregion

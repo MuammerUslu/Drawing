@@ -346,7 +346,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   levelData: {fileID: 11400000, guid: 8a61c89362d8545e787bed0621d22333, type: 2}
   linePrefab: {fileID: 5115222183707756864, guid: d397441d3ade34288b62aec30ba7aa9d, type: 3}
-  minDistanceBetweenPoints: 0.1
+  minDistanceBetweenPoints: 0.2
   snapDistance: 0.15
 --- !u!1 &1699146363
 GameObject:
