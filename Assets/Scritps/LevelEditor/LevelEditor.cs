@@ -12,6 +12,13 @@ public class LevelEditor : MonoBehaviour
     [SerializeField] private float minDistanceBetweenPoints = 0.2f;
     [SerializeField] private float snapDistance = 0.15f;
 
+    // Tweak these to your liking:
+    [Header("Smoothing Settings")]
+    [Tooltip("Used by RDP to remove small peaks. Smaller => keep more points, bigger => remove more detail.")]
+    public float rdpTolerance = 0.1f;
+    [Tooltip("How many Catmull-Rom subdivisions per segment.")]
+    public int catmullSubdivisions = 8;
+
     private readonly List<Vector3> _currentLine = new List<Vector3>();
     private readonly List<LineRenderer> _activeLines = new List<LineRenderer>();
 
@@ -35,6 +42,12 @@ public class LevelEditor : MonoBehaviour
 
     private void Update()
     {
+        // Press S to smooth the last line with "RDP + Catmull-Rom"
+        if (Input.GetKeyDown(KeyCode.S))
+        {
+            SmoothLastLine();
+        }
+
         if (Input.GetMouseButtonDown(2))
         {
             StartNewLine(true);
@@ -88,6 +101,182 @@ public class LevelEditor : MonoBehaviour
             RemoveLastLine();
         }
     }
+
+    // --------------------------------
+    //           SMOOTHING
+    // --------------------------------
+
+    /// <summary>
+    /// Press 'S' -> Take the last line, apply Ramer–Douglas–Peucker to remove small peaks,
+    /// then Catmull–Rom interpolation to get a smooth curve. Endpoints stay fixed.
+    /// </summary>
+    private void SmoothLastLine()
+    {
+        if (_activeLines.Count == 0) return;
+
+        // 1) Get last line
+        LineRenderer lastLine = _activeLines[_activeLines.Count - 1];
+        if (lastLine.positionCount < 2) return;
+
+        // 2) Original positions
+        Vector3[] original = new Vector3[lastLine.positionCount];
+        lastLine.GetPositions(original);
+
+        // 3) Simplify with RDP
+        List<Vector3> simplified = RamerDouglasPeucker(original, rdpTolerance);
+
+        // 4) Interpolate with Catmull–Rom
+        List<Vector3> finalPoints = CatmullRomSpline(simplified, catmullSubdivisions);
+
+        // 5) Update the line renderer
+        lastLine.positionCount = finalPoints.Count;
+        lastLine.SetPositions(finalPoints.ToArray());
+
+        // 6) Also update the last line in levelData
+        if (levelData != null && levelData.linePositions != null && levelData.linePositions.Length > 0)
+        {
+            int lastIndex = levelData.linePositions.Length - 1;
+            LineData ld = levelData.linePositions[lastIndex];
+            ld.points = finalPoints.ToArray();
+            EditorUtility.SetDirty(levelData);
+        }
+    }
+
+    /// <summary>
+    /// Ramer–Douglas–Peucker to remove points within 'tolerance' of the line.
+    /// Preserves endpoints exactly.
+    /// </summary>
+    private List<Vector3> RamerDouglasPeucker(Vector3[] points, float tolerance)
+    {
+        if (points.Length < 2)
+            return new List<Vector3>(points);
+
+        // Convert to List for recursion
+        List<Vector3> pointList = new List<Vector3>(points);
+        return RDPRecursive(pointList, 0, pointList.Count - 1, tolerance);
+    }
+
+    private List<Vector3> RDPRecursive(List<Vector3> pts, int startIndex, int endIndex, float tol)
+    {
+        // We always keep the first and last
+        Vector3 first = pts[startIndex];
+        Vector3 last = pts[endIndex];
+
+        float maxDistance = -1f;
+        int indexFarthest = -1;
+
+        // Find the point farthest from the line [first->last]
+        for (int i = startIndex + 1; i < endIndex; i++)
+        {
+            float dist = PerpDist(pts[i], first, last);
+            if (dist > maxDistance)
+            {
+                maxDistance = dist;
+                indexFarthest = i;
+            }
+        }
+
+        // If that distance is above tolerance, keep it
+        if (maxDistance > tol)
+        {
+            // Recurse on each segment
+            List<Vector3> leftSide = RDPRecursive(pts, startIndex, indexFarthest, tol);
+            List<Vector3> rightSide = RDPRecursive(pts, indexFarthest, endIndex, tol);
+
+            // Merge, removing the duplicate middle
+            leftSide.RemoveAt(leftSide.Count - 1);
+            leftSide.AddRange(rightSide);
+            return leftSide;
+        }
+        else
+        {
+            // No point is far enough to keep, so just keep endpoints
+            return new List<Vector3> { first, last };
+        }
+    }
+
+    /// <summary>
+    /// Returns perpendicular distance of 'pt' to line segment [p1->p2].
+    /// </summary>
+    private float PerpDist(Vector3 pt, Vector3 p1, Vector3 p2)
+    {
+        // If p1 and p2 are the same point, distance is trivial
+        if (p1 == p2) return Vector3.Distance(pt, p1);
+
+        // standard formula
+        float t = Vector3.Dot(pt - p1, p2 - p1) / (p2 - p1).sqrMagnitude;
+        t = Mathf.Clamp01(t);
+        Vector3 proj = p1 + t * (p2 - p1);
+        return Vector3.Distance(pt, proj);
+    }
+
+    /// <summary>
+    /// Catmull–Rom interpolation among 'points'.
+    /// This ensures the endpoints remain exactly, and yields a smooth curve in-between.
+    /// Subdivisions define how many extra points per segment.
+    /// 
+    /// For N points, we consider segments [i..i+1], but CR needs i-1 and i+2 for tangents.
+    /// We clamp edges so the first and last remain fixed.
+    /// </summary>
+    private List<Vector3> CatmullRomSpline(List<Vector3> points, int subdivisionsPerSeg)
+    {
+        // If not enough points to curve, just return them
+        if (points.Count < 2 || subdivisionsPerSeg < 1)
+            return new List<Vector3>(points);
+
+        List<Vector3> result = new List<Vector3>();
+
+        for (int i = 0; i < points.Count - 1; i++)
+        {
+            // p0: prev or itself if none
+            Vector3 p0 = (i == 0) ? points[i] : points[i - 1];
+            // p1: current
+            Vector3 p1 = points[i];
+            // p2: next
+            Vector3 p2 = points[i + 1];
+            // p3: next next or itself if none
+            Vector3 p3 = (i + 2 < points.Count) ? points[i + 2] : points[i + 1];
+
+            // We start with p1 exactly
+            if (i == 0)
+                result.Add(p1);
+
+            for (int s = 1; s <= subdivisionsPerSeg; s++)
+            {
+                float t = s / (float)subdivisionsPerSeg;
+                Vector3 pos = CatmullRomPos(p0, p1, p2, p3, t);
+                result.Add(pos);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Standard Catmull–Rom formula (alpha=0.5 if you want centripetal).
+    /// This version uses uniform CR for simplicity.
+    /// Adjust as needed for a "smoother" approach (centripetal).
+    /// </summary>
+    private Vector3 CatmullRomPos(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, float t)
+    {
+        // For uniform Catmull–Rom, we can define basis:
+        //  (-t^3 + 2t^2 - t) p0 + (3t^3 - 5t^2 + 2) p1 + (-3t^3 + 4t^2 + t) p2 + (t^3 - t^2) p3
+        // or we can compute via standard "blend" approach. Let's do a straightforward approach:
+
+        float t2 = t * t;
+        float t3 = t2 * t;
+
+        float b0 = 0.5f * (-t3 + 2f * t2 - t);
+        float b1 = 0.5f * (3f * t3 - 5f * t2 + 2f);
+        float b2 = 0.5f * (-3f * t3 + 4f * t2 + t);
+        float b3 = 0.5f * (t3 - t2);
+
+        return (b0 * p0) + (b1 * p1) + (b2 * p2) + (b3 * p3);
+    }
+
+    // --------------------------------
+    //       Existing Methods
+    // --------------------------------
 
     private void StartNewLine(bool straightLineMode)
     {
@@ -326,6 +515,5 @@ public class LevelEditor : MonoBehaviour
         return foundSnap;
     }
 }
-
 
 #endregion

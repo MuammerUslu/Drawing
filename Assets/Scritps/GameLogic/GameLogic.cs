@@ -22,8 +22,8 @@ namespace Drawing
 
         private bool LevelCompleted { get; set; }
 
-        private LineRenderer _targetShapeLineRenderer;
-        private LineRenderer _drawingLineRenderer;
+        private readonly List<LineRenderer> _targetShapeLineRenderers;
+        private readonly LineRenderer _drawingLineRenderer;
 
         private const int MAX_CONNECTION_DEPTH = 10;
         private const float FIRST_NODE_SELECTION_CONNECTION_COUNT_FACTOR = 0.0001f;
@@ -35,10 +35,18 @@ namespace Drawing
             _lineRendererPrefab = lineRendererPrefab;
             _levelExtractor = new LevelExtractor();
             _parentTransform = parentTransform;
+            _targetShapeLineRenderers = new List<LineRenderer>();
 
             _bfsHelper = new BFSHelper();
             _connectionHelper = new ConnectionHelper();
             _nodeSelector = new NodeSelector();
+
+            // Instantiate drawing line renderer
+            _drawingLineRenderer = Object.Instantiate(_lineRendererPrefab, _parentTransform);
+            _drawingLineRenderer.gameObject.name = "DrawingLine";
+            _drawingLineRenderer.numCapVertices = 0;
+            _drawingLineRenderer.numCornerVertices = 0;
+            _drawingLineRenderer.startWidth *= 1.5f;
         }
 
         public void Subscribe()
@@ -74,18 +82,14 @@ namespace Drawing
                     if (allPoints.Count == 0 || allPoints[^1] != position)
                         allPoints.Add(position);
                 }
-            }
 
-            // Instantiate line renderers
-            _targetShapeLineRenderer = Object.Instantiate(_lineRendererPrefab, _parentTransform);
-            _drawingLineRenderer = Object.Instantiate(_lineRendererPrefab, _parentTransform);
-            _drawingLineRenderer.gameObject.name = "DrawingLine";
-            _drawingLineRenderer.startWidth *= 1.5f;
+                _targetShapeLineRenderers.Add(Object.Instantiate(_lineRendererPrefab, _parentTransform));
+                _targetShapeLineRenderers[^1].positionCount = lineData.points.Length;
+                _targetShapeLineRenderers[^1].SetPositions(lineData.points);
+            }
 
             // Set positions for target shape
             Vector3[] linePositions = allPoints.ToArray();
-            _targetShapeLineRenderer.positionCount = allPoints.Count;
-            _targetShapeLineRenderer.SetPositions(linePositions);
 
             // Extract graph info
             _levelExtractor.ExtractLevelData(linePositions);
@@ -93,11 +97,17 @@ namespace Drawing
 
         private void ClearExistingLevel()
         {
-            if (_targetShapeLineRenderer != null)
-                Object.Destroy(_targetShapeLineRenderer.gameObject);
+            if (_targetShapeLineRenderers != null)
+            {
+                foreach (var targetShapeLine in _targetShapeLineRenderers)
+                {
+                    Object.Destroy(targetShapeLine.gameObject);
+                }
 
-            if (_drawingLineRenderer != null)
-                Object.Destroy(_drawingLineRenderer.gameObject);
+                _targetShapeLineRenderers.Clear();
+            }
+
+            _drawingLineRenderer.positionCount = 0;
 
             _selectedNodes.Clear();
             _selectedConnections.Clear();
@@ -236,7 +246,7 @@ namespace Drawing
             if (LevelCompleted)
                 return;
 
-            int totalConnectionsNeeded = _targetShapeLineRenderer.positionCount - 1;
+            int totalConnectionsNeeded = _levelExtractor.Connections.Count;
             if (_selectedConnections.Count >= totalConnectionsNeeded)
             {
                 LevelCompleted = true;
