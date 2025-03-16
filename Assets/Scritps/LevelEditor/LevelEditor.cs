@@ -1,4 +1,4 @@
-#region UNITY_EDITOR
+#if UNITY_EDITOR
 
 using System.Collections.Generic;
 using Drawing.Data;
@@ -462,4 +462,4 @@ public class LevelEditor : MonoBehaviour
     }
 }
 
-#endregion
+#endif
